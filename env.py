@@ -3,37 +3,35 @@ import torch
 import numpy as np
 import random
 
-class GraphEnv(gym.Env):
+class GridEnv(gym.Env):
     def __init__(self,args):
-        super(GraphEnv, self).__init__()
+        super(GridEnv, self).__init__()
         self.args = args
-        self.graph = {
-            0: [1],        # Node 0 connects to Node 1
-            1: [0, 2, 3, 4],  # Node 1 connects to Nodes 0, 2, 3, and 4
-            2: [1, 5],        # Node 2 connects to Node 1 and 5
-            3: [1, 5],        # Node 3 connects to Node 1 and 5
-            4: [1, 6],        # Node 4 connects to Node 1 and 6
-            5: [2, 3, 7],        # Node 5 connects to Node 2, 3 and 7
-            6: [4, 7],        # Node 6 connects to Node 4 and 7
-            7: [5, 6]          # Node 7 connects to Nodes 5 and 6
-        }
 
-        self.nodes = list(self.graph.keys())
+        self.grid = self.create_network_grid(args)
+        
+    def create_network_grid(self,args):
+        self.num_time_steps = args["max_time"] // args["time_step"] + 1
+        self.num_nodes = len(args["stations"]) + len(args["sections"])
+        state_tensor = torch.zeros(self.num_nodes,self.num_time_steps)
 
+        self.stations = []
+        for s in self.args['station']:
+            self.stations.append(list(s.keys())[0])
 
-        self.edges = []
-        for src in self.graph:
-            for dst in self.graph[src]:
-                self.edges.append((src, dst))
+        self.sections = []
+        for s in self.args['sections']:
+            self.sections.append(list(s.keys())[0])
 
-        self.edges_tensor = torch.tensor(self.edges, dtype=torch.long)
-        self.action_space = torch.tensor(self.nodes, dtype=torch.long)
-        self.observation_space = torch.zeros(len(self.nodes), dtype=torch.long)
+        state_tensor[:, 0] = torch.tensor([item for pair in zip(self.stations, self.sections) for item in pair])           
+        return state_tensor
 
-        self.state = torch.zeros(len(self.nodes), dtype=torch.long)
-
+    
+    
+    
+    
     def reset(self):
-        self.state = torch.zeros(len(self.nodes), dtype=torch.long)
+        
         return self.state
 
     def render(self,):
@@ -44,33 +42,50 @@ class GraphEnv(gym.Env):
         pass
 
 if __name__ == "__main__":
-    NUM_TRAINS = 3
-    NUM_STATIONS = 7
-    trains = [ _ for _ in range(NUM_TRAINS)]
-    trains_start = random.sample(range(NUM_STATIONS + 1), NUM_TRAINS)
-    trains_end = []
-    
-    for start in trains_start:
-        possible_ends = [i for i in range(NUM_STATIONS + 1) if i != start]
-        end = random.choice(possible_ends)
-        trains_end.append(end)
-    
-    train_direction = []
-    for idx in trains:
-        if trains_start[idx] > trains_end[idx]:
-            train_direction.append(-1.)
-        else:
-            train_direction.append(1.)
-
-
+   
     args = {
-        'NUM_TRAINS' : NUM_TRAINS,
-        'NUM_STATIONS':NUM_STATIONS,
-        'trains':trains,
-        'trains_start':trains_start,
-        'trains_end':trains_end,
-        'train_direction': train_direction
-    }
-    env = GraphEnv(args)
+        "stations": [
+            {"S1": {"capacity": 3}},
+            {"S2": {"capacity": 3}},
+            {"S3": {"capacity": 3}},
+            {"S4": {"capacity": 3}},
+            {"S5": {"capacity": 3}},
+            {"S6": {"capacity": 3}},
+            {"S7": {"capacity": 3}},
+            {"S8": {"capacity": 3}},
+            {"S9": {"capacity": 3}},
+            {"S10": {"capacity": 5}}
+        ],
+
+        "sections": [
+            {'s12': {"start": "S1", "end": "S2", "length": 10000}},
+            {'s23': {"start": "S2", "end": "S3", "length": 20000}},
+            {'s34': {"start": "S3", "end": "S4", "length": 10000}},
+            {'s45': {"start": "S4", "end": "S5", "length": 20000}},
+            {'s56': {"start": "S5", "end": "S6", "length": 20000}},
+            {'s67': {"start": "S6", "end": "S7", "length": 10000}},
+            {'s78': {"start": "S7", "end": "S8", "length": 20000}},
+            {'s89': {"start": "S8", "end": "S9", "length": 20000}},
+            {'s910': {"start": "S9", "end": "S10", "length": 20000}}
+        ],
+
+    "train_configuration" : [
+        {"name": "t1", "origin": "S1", "destination": "S10", "starting_time": 0, "priority": 3, "speed": 1500},
+        {"name": "t2", "origin": "S10", "destination": "S1", "starting_time": 40, "priority": 2, "speed": 1000},
+        {"name": "t3", "origin": "S1", "destination": "S10", "starting_time": 80, "priority": 1, "speed": 500},
+        {"name": "t4", "origin": "S10", "destination": "S1", "starting_time": 120, "priority": 3, "speed": 1500},
+        {"name": "t5", "origin": "S1", "destination": "S10", "starting_time": 160, "priority": 3, "speed": 1500},
+        {"name": "t6", "origin": "S10", "destination": "S1", "starting_time": 200, "priority": 3, "speed": 1500},
+        {"name": "t7", "origin": "S1", "destination": "S10", "starting_time": 240, "priority": 3, "speed": 1500},
+        {"name": "t8", "origin": "S10", "destination": "S1", "starting_time": 280, "priority": 3, "speed": 1500}
+    ],
+    "max_time":1000,
+    "time_step": 10
+
+        }
+
+
+
+    env = GridEnv(args)
     env.reset()
     env.render()
