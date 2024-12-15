@@ -2,6 +2,7 @@ import gym
 import torch
 import numpy as np
 import random
+import re
 
 class GridEnv(gym.Env):
     def __init__(self,args):
@@ -9,6 +10,7 @@ class GridEnv(gym.Env):
         self.args = args
 
         self.grid = self.create_network_grid(args)
+        self.grid = self.populate_trains(args)
         
     def create_network_grid(self,args):
         self.num_time_steps = args["max_time"] // args["time_step"] + 1
@@ -16,30 +18,42 @@ class GridEnv(gym.Env):
         state_tensor = torch.zeros(self.num_nodes,self.num_time_steps)
 
         self.stations = []
-        for s in self.args['station']:
+        for s in self.args['stations']:
             self.stations.append(list(s.keys())[0])
 
         self.sections = []
         for s in self.args['sections']:
             self.sections.append(list(s.keys())[0])
-
-        state_tensor[:, 0] = torch.tensor([item for pair in zip(self.stations, self.sections) for item in pair])           
+        state_tensor[:, 0] = torch.tensor([float(re.sub(r'[^0-9.]', '', item)) for pair in zip(self.stations, self.sections) for item in pair] + [float(re.sub(r'[^0-9.]', '', self.stations[-1]))] )            
+        
         return state_tensor
 
-    
-    
-    
-    
+    def populate_trains(self,args):
+        state_tensor = self.grid
+
+        train_init_states = []
+        for t in args["train_configuration"]:
+            train_init_states.append((float(t['name'][1:]),float(t['origin'][1:]),t['starting_time']))
+
+        for nm, ss, st in train_init_states:
+            row = torch.where(state_tensor[:,0] == ss)[0]
+            col = st//args['time_step'] +1
+            state_tensor[row,col] = nm
+        
+        return state_tensor
+
+ 
     def reset(self):
         
-        return self.state
+        return self.grid
 
     def render(self,):
-        print("Current State:", self.state)
+        print("Current State:", self.grid)
 
     
     def step(self, action):
         pass
+
 
 if __name__ == "__main__":
    
