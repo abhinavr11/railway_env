@@ -86,16 +86,6 @@ def generate_track_mapping(num_stations, tracks_per_station):
 
 
 def create_graph(args, flag):
-    """
-    Creates a directed NetworkX graph based on the provided arguments and flag.
-
-    Parameters:
-    - args (dict): Dictionary containing 'stations' and 'sections' data.
-    - flag (int): Direction flag. Use 1 for left-to-right and -1 for right-to-left.
-
-    Returns:
-    - G (networkx.MultiDiGraph): The resulting directed graph.
-    """
     if flag not in [1, -1]:
         raise ValueError("Flag must be either 1 (left-to-right) or -1 (right-to-left).")
     
@@ -126,78 +116,46 @@ def create_graph(args, flag):
     return G
 
 def visualize_graph(G):
-    # Sort nodes based on their numerical order (assuming nodes are named like 'S1', 'S2', ...)
     nodes = sorted(G.nodes(), key=lambda x: int(x[1:]))
-    
-    # Assign positions: place nodes in a straight horizontal line
     pos = {node: (i, 0) for i, node in enumerate(nodes)}
-    
     plt.figure(figsize=(12, 4))
-    
-    # Draw nodes
     nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=100)
-    
-    # Draw edges
     nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, edge_color='gray', width=1)
-    
-    # Draw labels
     nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold')
-    
-    # Draw edge labels (length)
     edge_labels = nx.get_edge_attributes(G, 'length')
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='red', font_size=3, label_pos=0.5)
     
-    # Remove axes
+
     plt.axis('off')
     plt.title("Graph Visualization", fontsize=16)
     plt.tight_layout()
     plt.show()
 
-def get_next_edges(G, current_pos):
-    """
-    Given a NetworkX graph and a current position (station or edge name),
-    returns the names of the next possible edges.
-
-    Parameters:
-    - G (networkx.MultiDiGraph): The graph containing stations and sections.
-    - current_pos (str): The current position, either a station name or an edge name.
-
-    Returns:
-    - List[str]: A list of edge names that are the next possible moves.
-
-    Raises:
-    - ValueError: If the current_pos is neither a valid station nor a valid edge name.
-    """
-    # Check if current_pos is a node (station name)
+def get_next_edges(G, current_pos):  
     if G.has_node(current_pos):
-        # Get all outgoing edges from the station
         outgoing_edges = G.out_edges(current_pos, keys=True, data=True)
-        # Extract the 'name' attribute of each outgoing edge
+
         next_edge_names = [data['name'] for _, _, key, data in G.edges(current_pos, keys=True, data=True)]
         return next_edge_names
-    
-    # If not a node, check if it's an edge name
+
     else:
-        # Initialize variables to store edge information
+
         edge_found = False
         target_node = None
-        
-        # Iterate through all edges to find the edge with the given name
+
         for u, v, key, data in G.edges(keys=True, data=True):
             if data.get('name') == current_pos:
                 edge_found = True
-                # Determine the target node based on edge direction
                 target_node = v
                 break
         
         if edge_found:
-            # Get all outgoing edges from the target node
             outgoing_edges = G.out_edges(target_node, keys=True, data=True)
-            # Extract the 'name' attribute of each outgoing edge
+
             next_edge_names = [data['name'] for _, _, key, data in G.edges(target_node, keys=True, data=True)]
             return next_edge_names
         else:
-            # current_pos is neither a valid node nor a valid edge name
+
             raise ValueError(f"'{current_pos}' is neither a valid station name nor an edge name in the graph.")
 
 
