@@ -8,14 +8,9 @@ class GridEnv(gym.Env):
     def __init__(self,args):
         super(GridEnv, self).__init__()
         self.args = args
-        self.TRAIN_PLACEHOLDER = 1.
-        self.BLOCKER_PLACEHOLDER = -1.
-        self.FREE_PLACEHOLDER = 0.
 
         self.grid = self.create_network_grid(args)
-        self.grid = self.populate_trains(args)
-
-
+        
         
     def create_network_grid(self,args):
         self.num_time_steps = args["max_time"] // args["time_step"] + 1
@@ -29,8 +24,7 @@ class GridEnv(gym.Env):
         self.sections = []
         for s in self.args['sections']:
             self.sections.append(list(s.keys())[0])
-        
-        self.row_info = [item for pair in zip(self.stations, self.sections) for item in pair] + [self.stations[-1]]          
+        state_tensor[:, 0] = torch.tensor([float(re.sub(r'[^0-9.]', '', item)) for pair in zip(self.stations, self.sections) for item in pair] + [float(re.sub(r'[^0-9.]', '', self.stations[-1]))] )            
         
         return state_tensor
 
@@ -39,17 +33,26 @@ class GridEnv(gym.Env):
 
         train_init_states = []
         for t in args["train_configuration"]:
-            train_init_states.append((t['name'],t['origin'],t['starting_time']))
+            train_init_states.append((float(t['name'][1:]),float(t['origin'][1:]),t['starting_time']))
 
         for nm, ss, st in train_init_states:
-            row = self.row_info.index(ss)
-            col = st//args['time_step'] 
-            state_tensor[row,col] = self.TRAIN_PLACEHOLDER
-            print(row,col)
-            
-            
+            row = torch.where(state_tensor[:,0] == ss)[0]
+            col = st//args['time_step'] +1
+            state_tensor[row,col] = 1
         
+        self.grid = state_tensor
         return state_tensor
+
+    def step(self, start, connecting_edge, end, time_step):
+        # Implement Logic of Transition
+        time = section_length/speed
+        # 3, 4, 5, 6 3:7
+        # Calculate Transition Track ID
+        self.grid[start,time_step:time_step+time+1] = 1
+        self.grid[end,time_step+time] = 1
+
+
+
 
  
     def reset(self):
@@ -63,8 +66,29 @@ class GridEnv(gym.Env):
     def step(self, action):
         pass
 
+def generate_track_mapping(num_stations, tracks_per_station):
+    track_mapping = {}
+    track_id = 0
+
+    for station in range(1, num_stations + 1):
+        # Map station tracks to track_id
+        num_tracks_per_station = tracks_per_station[station-1]
+        for track in range(1, num_tracks_per_station + 1):
+            track_mapping[track_id] = ('station', station, track)
+            track_id += 1
+
+        # Add section between this station and the next station
+        if station < num_stations:
+            track_mapping[track_id] = ('section', station, station + 1)
+            track_id += 1
+
+    return track_mapping
+
+
 
 if __name__ == "__main__":
+    tracks_per_station = [3,3,3,3,3,3,3,3,3,5]
+    print(generate_track_mapping(10,tracks_per_station))
    
     args = {
         "stations": [
@@ -112,4 +136,3 @@ if __name__ == "__main__":
     env = GridEnv(args)
     env.reset()
     env.render()
-
