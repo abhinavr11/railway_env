@@ -5,29 +5,21 @@ import random
 import re
 import networkx as nx
 import matplotlib.pyplot as plt
+from collections import defaultdict
+
 
 class GridEnv(gym.Env):
     def __init__(self,args):
         super(GridEnv, self).__init__()
         self.args = args
-
         self.grid = self.create_network_grid(args)
+        self.populate_trains(args)
         
         
     def create_network_grid(self,args):
         self.num_time_steps = args["max_time"] // args["time_step"] + 1
-        self.num_nodes = len(args["stations"]) + len(args["sections"])
+        self.num_nodes = len(self.create_station_section_array(args)) 
         state_tensor = torch.zeros(self.num_nodes,self.num_time_steps)
-
-        self.stations = []
-        for s in self.args['stations']:
-            self.stations.append(list(s.keys())[0])
-
-        self.sections = []
-        for s in self.args['sections']:
-            self.sections.append(list(s.keys())[0])
-        state_tensor[:, 0] = torch.tensor([float(re.sub(r'[^0-9.]', '', item)) for pair in zip(self.stations, self.sections) for item in pair] + [float(re.sub(r'[^0-9.]', '', self.stations[-1]))] )            
-        
         return state_tensor
 
     def populate_trains(self,args):
@@ -35,11 +27,11 @@ class GridEnv(gym.Env):
 
         train_init_states = []
         for t in args["train_configuration"]:
-            train_init_states.append((float(t['name'][1:]),float(t['origin'][1:]),t['starting_time']))
+            train_init_states.append(t['name'],t['origin'],t['starting_time'])
 
         for nm, ss, st in train_init_states:
-            row = torch.where(state_tensor[:,0] == ss)[0]
-            col = st//args['time_step'] +1
+            row = self.find_indices(self.GRID_ROW_INFO,ss)[0]
+            col = st//args['time_step'] 
             state_tensor[row,col] = 1
         
         self.grid = state_tensor
@@ -65,25 +57,54 @@ class GridEnv(gym.Env):
     def step(self, action):
         pass
 
-def generate_track_mapping(num_stations, tracks_per_station):
-    track_mapping = {}
-    track_id = 0
 
-    for station in range(1, num_stations + 1):
-        # Map station tracks to track_id
-        num_tracks_per_station = tracks_per_station[station-1]
-        for track in range(1, num_tracks_per_station + 1):
-            track_mapping[track_id] = ('station', station, track)
-            track_id += 1
+    def create_station_section_array(self,args):
+        stations = args.get('stations', [])
+        sections = args.get('sections', [])
+        result = []
+        num_sections = len(sections)
+        
+        for i, station_dict in enumerate(stations):
+            station_name = next(iter(station_dict))
+            capacity = station_dict[station_name].get('capacity', 1)
+            result.extend([station_name] * capacity)
+            if i < num_sections:
+                section_name = next(iter(sections[i]))
+                result.append(section_name)
+        
+        self.GRID_ROW_INFO = result 
+        return result
+    
+    def create_string_to_indices_map(self,result_array):
+   
+        mapping = defaultdict(list)
+        for idx, item in enumerate(result_array):
+            mapping[item].append(idx)
+        return mapping
 
-        # Add section between this station and the next station
-        if station < num_stations:
-            track_mapping[track_id] = ('section', station, station + 1)
-            track_id += 1
+    def get_next_index(self,mapping, counters, ss):
+   
+        if ss in mapping and counters[ss] < len(mapping[ss]):
+            index = mapping[ss][counters[ss]]
+            counters[ss] += 1
+            return index
+        else:
+            raise ValueError("More trains at a station than allowed")
 
-    return track_mapping
+    def find_indices(self,result_array, ss_queries): # given the GRID_ROW_INFO find indices of row
+        ss_queries = [ss_queries]
+        mapping = self.create_string_to_indices_map(result_array)
+        counters = defaultdict(int)
+        indices = []
+        
+        for ss in ss_queries:
+            index = self.get_next_index(mapping, counters, ss)
+            indices.append(index)
+        
+        return indices
 
-
+    def where_is_my_train(self,row,col):
+        print('Train present at :',self.GRID_ROW_INFO[row],' at time step :', col*self.args['time_step'])
 
 def create_graph(args, flag):
     if flag not in [1, -1]:
@@ -160,8 +181,7 @@ def get_next_edges(G, current_pos):
 
 
 if __name__ == "__main__":
-    tracks_per_station = [3,3,3,3,3,3,3,3,3,5]
-    print(generate_track_mapping(10,tracks_per_station))
+  
    
     args = {
         "stations": [
@@ -203,8 +223,8 @@ if __name__ == "__main__":
     "time_step": 10
         }
 
-    G_lr = create_graph(args['sections'], 1)
-    G_rl = create_graph(args['sections'], -1)
+    G_lr = create_graph(args, 1)
+    G_rl = create_graph(args, -1)
 
 
 
