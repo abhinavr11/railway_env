@@ -37,13 +37,29 @@ class GridEnv(gym.Env):
         self.grid = state_tensor
         return state_tensor
 
-    def step(self, start, connecting_edge, end, time_step):
+    def step(self, action, start, connecting_edge, end, t_start, train_id):
         # Implement Logic of Transition
-        time = section_length/speed
-        # 3, 4, 5, 6 3:7
-        # Calculate Transition Track ID
-        self.grid[start,time_step:time_step+time+1] = 1
-        self.grid[end,time_step+time] = 1
+        tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
+        tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
+        tau_pre = 2  # Block the destination track from t_end-tau_pre to t_end-1.
+        list_tracks_end = [3, 4, 6]
+        time_section = section_length/speed
+        t_end = t_start + time_section
+        if action == "Move":
+            self.grid[start, t_start] = train_id # Starting track
+            self.grid[connecting_edge, t_start:t_end+1] = train_id # Populate section
+
+            self.grid[connecting_edge, t_start-tau_d:t_start] = -1 # Block section from t_start-tau_d to t_start-1
+            self.grid[connecting_edge, t_end+1:t_end+tau_d+1] = -1 # Block section from t_end+1 to t_end+tau_d
+
+            for track in list_tracks_end:
+                self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = -1 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
+
+            self.grid[end, t_end-tau_pre:t_end] = -1 # Block the destination track from t_end-tau_pre to t_end-1.
+            self.grid[end, t_end] = train_id # Ending track
+        else:
+            # "Write code for halt action"
+            pass
 
  
     def reset(self):
@@ -52,10 +68,6 @@ class GridEnv(gym.Env):
 
     def render(self,):
         print("Current State:", self.grid)
-
-    
-    def step(self, action):
-        pass
 
 
     def create_station_section_array(self,args):
