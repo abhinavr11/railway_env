@@ -27,7 +27,7 @@ class GridEnv(gym.Env):
 
         train_init_states = []
         for t in args["train_configuration"]:
-            train_init_states.append(t['name'],t['origin'],t['starting_time'])
+            train_init_states.append((t['name'],t['origin'],t['starting_time']))
 
         for nm, ss, st in train_init_states:
             row = self.find_indices(self.GRID_ROW_INFO,ss)[0]
@@ -43,35 +43,38 @@ class GridEnv(gym.Env):
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
         tau_pre = 2  # Block the destination track from t_end-tau_pre to t_end-1.  
         tau_min = 3 # Minimum Dwelling Time     
-        list_tracks_end = [3, 4, 6]                                                                                                                                                                                                                                                                                      
-        
+        list_tracks_end = [3, 4, 6]  
+        section_length = 1000
+        speed = 100                                                                                                                                                                                                                                                                                    
+        action = 'move'
+
         if action == 'move':
             time_section = section_length/speed
             t_end = t_start + time_section
-            self.grid[start, t_start] = train_id # Starting track
-            self.grid[connecting_edge, t_start:t_end+1] = train_id # Populate section
+            self.grid[start, t_start] = 1 # Starting track
+            self.grid[connecting_edge, t_start:t_end+1] = 1 # Populate section
             
-            self.grid[connecting_edge, t_start-tau_d:t_start] = -1 # Block section from t_start-tau_d to t_start-1
-            self.grid[connecting_edge, t_end+1:t_end+tau_d+1] = -1 # Block section from t_end+1 to t_end+tau_d
+            self.grid[connecting_edge, t_start-tau_d:t_start] = 255 # Block section from t_start-tau_d to t_start-1
+            self.grid[connecting_edge, t_end+1:t_end+tau_d+1] = 255 # Block section from t_end+1 to t_end+tau_d
             
             for track in list_tracks_end:
-                self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = -1 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
+                self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = 255 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
 
-            self.grid[end, t_end-tau_pre:t_end] = -1 # Block the destination track from t_end-tau_pre to t_end-1.      
-            self.grid[end, t_end] = train_id # Ending track
+            self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.      
+            self.grid[end, t_end] = 1 # Ending track
         else:
              # First time dwelling
-            if self.grid[start,t_start-1] != train_id:
-                self.grid[start, t_start:t_start+tau_min+1] = train_id
+            if self.grid[start,t_start-1] != 1: # If previous time_step is not occupied by train(that is 1), do this
+                self.grid[start, t_start:t_start+tau_min+1] = 1
             # If next section is free and it is not the first time halting do one step
-            elif start+1 < 41 and t_start+1 < self.num_time_steps and self.grid[start+1,t_start+1] == 0:
-                self.grid[start,t_start:t_start+2] = train_id
+            elif start+1 < self.num_nodes and t_start+1 < self.num_time_steps and self.grid[start+1,t_start+1] == 0:
+                self.grid[start,t_start:t_start+2] = 1
             # If next section is not free find the timestep corresponding to when next section is available.
             else:
                 row = self.grid[start+1] # Have to handle the out of bound case for start+1
                 # Search for the first non-zero column index from the t_start index onwards
                 non_zero_indices = (row[t_start+1:] != 0).nonzero(as_tuple=True)[0]
-                self.grid[start, t_start:non_zero_indices+2] = train_id           
+                self.grid[start, t_start:non_zero_indices+2] = 1           
 
 
  
