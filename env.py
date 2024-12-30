@@ -56,11 +56,13 @@ class GridEnv(gym.Env):
             
             self.grid[connecting_edge, t_start-tau_d:t_start] = 255 # Block section from t_start-tau_d to t_start-1
             self.grid[connecting_edge, t_end+1:t_end+tau_d+1] = 255 # Block section from t_end+1 to t_end+tau_d
+
             
             for track in list_tracks_end:
                 self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = 255 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
 
             self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.      
+            self.grid[end,t_end+1] = 255
             self.grid[end, t_end] = 1 # Ending track
         else:
              # First time dwelling
