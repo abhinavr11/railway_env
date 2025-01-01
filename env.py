@@ -49,7 +49,7 @@ class GridEnv(gym.Env):
         action = 'move'
 
         if action == 'move':
-            time_section = section_length/speed
+            time_section = section_length//speed
             t_end = t_start + time_section
             self.grid[start, t_start] = 1 # Starting track
             self.grid[connecting_edge, t_start:t_end+1] = 1 # Populate section

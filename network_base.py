@@ -122,25 +122,25 @@ class QNet_Base(nn.Module):
         return q_values
 
 
-if __name__ == "__main__":
-    # Example usage:
+# if __name__ == "__main__":
+#     # Example usage:
 
-    # Instantiate the network
-    net = QNet_Base(
-        in_channels_left=1,
-        in_channels_right=1,
-        left_input_shape=(1, 84, 84),
-        right_input_shape=(1, 84, 84),
-        fc_input_dim=10,  # example if train_props has length 10
-    )
+#     # Instantiate the network
+#     net = QNet_Base(
+#         in_channels_left=1,
+#         in_channels_right=1,
+#         left_input_shape=(1, 84, 84),
+#         right_input_shape=(1, 84, 84),
+#         fc_input_dim=10,  # example if train_props has length 10
+#     )
 
-    # Dummy inputs
-    batch_size = 4
-    dummy_left_img = torch.randn(batch_size, 1, 84, 84)   # (B, C, H, W)
-    dummy_right_img = torch.randn(batch_size, 1, 84, 84)  # (B, C, H, W)
-    dummy_train_props = torch.randn(batch_size, 10)       # (B, fc_input_dim)
+#     # Dummy inputs
+#     batch_size = 4
+#     dummy_left_img = torch.randn(batch_size, 1, 84, 84)   # (B, C, H, W)
+#     dummy_right_img = torch.randn(batch_size, 1, 84, 84)  # (B, C, H, W)
+#     dummy_train_props = torch.randn(batch_size, 10)       # (B, fc_input_dim)
 
-    # Forward pass
-    q_vals = net(dummy_left_img, dummy_right_img, dummy_train_props)
-    print("Output Q-values shape:", q_vals.shape)  # Should be [4, 2]
-    print(q_vals)
+#     # Forward pass
+#     q_vals = net(dummy_left_img, dummy_right_img, dummy_train_props)
+#     print("Output Q-values shape:", q_vals.shape)  # Should be [4, 2]
+#     print(q_vals)
