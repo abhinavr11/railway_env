@@ -38,7 +38,7 @@ class GridEnv(gym.Env):
         self.grid = state_tensor
         return state_tensor
 
-    def step(self, action, start, connecting_edge, end, t_start, train_id):
+    def step(self, action, start, connecting_edge, end, t_start, train_id, destination):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
@@ -71,6 +71,9 @@ class GridEnv(gym.Env):
             self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.      
             self.grid[end,t_end+1] = 255
             self.grid[end, t_end] = 1 # Ending track
+            if end == destination:
+                reward = 111111
+                return
         else:
          
              # First time dwelling
