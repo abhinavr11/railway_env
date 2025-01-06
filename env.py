@@ -48,6 +48,7 @@ class GridEnv(gym.Env):
         section_length = 1000
         speed = 100                                                                                                                                                                                                                                                                                    
         action = 'move'
+        state = self.grid
 
         if action == 'move':
             time_section = section_length/speed
@@ -55,7 +56,7 @@ class GridEnv(gym.Env):
            
             if (self.grid[connecting_edge, t_start:t_end+1] != 0).any()== True:
                 reward = -1 # Give negative reward
-                return
+                return state, action, self.grid, reward
 
            
             self.grid[start, t_start] = 1 # Starting track
