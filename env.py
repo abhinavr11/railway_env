@@ -15,7 +15,8 @@ class GridEnv(gym.Env):
         self.args = args
         self.grid = self.create_network_grid(args)
         self.populate_trains(args)
-        self.train_state = {}
+        self.train_state = {} # Dictionary of "train_id : (Curr_location, destination, priority)"
+        self.parallel_tracks = {} # List of parallel tracks of a station
        
        
     def create_network_grid(self,args):
@@ -30,7 +31,17 @@ class GridEnv(gym.Env):
         train_init_states = []
         for t in args["train_configuration"]:
             train_init_states.append((t['name'],t['origin'],t['starting_time'],t['destination'],t['priority']))
+        current_index = 0
 
+        for station in args["stations"]:
+            capacity = list(station.values())[0]["capacity"]
+            station_tracks = list(range(current_index, current_index + capacity))
+            
+            for track in station_tracks:
+                self.parallel_tracks[track] = [t for t in station_tracks if t != track]
+            
+            current_index += capacity + 1  # +1 to account for the section
+            
         train_id = 0
         for nm, ss, st, ds, pr in train_init_states:
             row = self.find_indices(self.GRID_ROW_INFO,ss)[0]
@@ -44,13 +55,12 @@ class GridEnv(gym.Env):
         
         return state_tensor
 
-    def step(self, action, start, connecting_edge, end, t_start, train_id, destination, neighbors):
+    def step(self, action, start, connecting_edge, end, t_start, train_id, destination):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
         tau_pre = 2 # Block the destination track from t_end-tau_pre to t_end-1.  
         tau_min = 3 # Minimum Dwelling Time    
-        list_tracks_end = [3, 4, 6]  
         section_length = 1000
         speed = 100                                                                                                                                                                                                                                                                                    
         action = 'move'
@@ -80,7 +90,7 @@ class GridEnv(gym.Env):
             self.grid[connecting_edge, t_end+1:t_end+tau_d+1] = 255 # Block section from t_end+1 to t_end+tau_d
 
            
-            for track in list_tracks_end:
+            for track in self.parallel_tracks:
                 self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = 255 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
 
             self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.      
