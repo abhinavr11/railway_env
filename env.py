@@ -75,7 +75,7 @@ class GridEnv(gym.Env):
         done = False
 
         if action == 'move':
-            time_section = section_length/speed
+            time_section = section_length//speed
             t_end = t_start + time_section
            
             if (self.grid[connecting_edge, t_start:t_end+1] != 0).any()== True:
@@ -321,3 +321,7 @@ if __name__ == "__main__":
     env = GridEnv(args)
     env.reset()
     env.render()
+
+# action, start, connecting_edge, end, t_start, train_id, destination, priority, current_location
+
+    env.step(1,3,4,6,0,1,9,1,3)
