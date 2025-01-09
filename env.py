@@ -15,6 +15,7 @@ class GridEnv(gym.Env):
         self.args = args
         self.grid = self.create_network_grid(args)
         self.populate_trains(args)
+        self.train_state = {}
        
        
     def create_network_grid(self,args):
@@ -28,17 +29,22 @@ class GridEnv(gym.Env):
 
         train_init_states = []
         for t in args["train_configuration"]:
-            train_init_states.append((t['name'],t['origin'],t['starting_time']))
+            train_init_states.append((t['name'],t['origin'],t['starting_time'],t['destination'],t['priority']))
 
-        for nm, ss, st in train_init_states:
+        train_id = 0
+        for nm, ss, st, ds, pr in train_init_states:
             row = self.find_indices(self.GRID_ROW_INFO,ss)[0]
+            destination = self.find_indices(self.GRID_ROW_INFO,ds)[0]
             col = st//args['time_step']
             state_tensor[row,col] = 1
+            self.train_state[train_id] = (row, destination, pr)
+            train_id += 1
        
         self.grid = state_tensor
+        
         return state_tensor
 
-    def step(self, action, start, connecting_edge, end, t_start, train_id, destination, priority, current_location):
+    def step(self, action, start, connecting_edge, end, t_start, train_id, destination, neighbors):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
@@ -80,15 +86,18 @@ class GridEnv(gym.Env):
             self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.      
             self.grid[end,t_end+1] = 255
             self.grid[end, t_end] = 1 # Ending track
-            reward = R_move * priority
+            self.train_state[train_id][0] = end
+            reward = R_move * self.train_state[train_id][2]
 
-            if current_location == destination: ### If all trains reach their respective destinations do this.
+            if all(value[0] == value[1] for value in self.train_state.values()): ### If all trains reach their respective destinations do this.
                 reward = alpha*(beta-DP)
                 return state, action, self.grid, reward, done
 
-            if end == destination:
-                reward = R_done * priority
+            if self.train_state[train_id][0] == self.train_state[train_id][1] :
+                reward = R_done * self.train_state[train_id][2]
                 return state, action, self.grid, reward, done
+
+            return state, action, self.grid, reward, done
         else:
          
              # First time dwelling
@@ -97,7 +106,7 @@ class GridEnv(gym.Env):
                     reward = P # Give negative reward
                     return state, action, self.grid, reward, done
                 self.grid[start, t_start:t_start+tau_min+1] = 1
-                reward = R_halt * tau_min * priority
+                reward = R_halt * tau_min * self.train_state[train_id][2]
                 return state, action, self.grid, reward, done
             # If next section is free and it is not the first time halting do one step
             elif start+1 < self.num_nodes and t_start+1 < self.num_time_steps and self.grid[start+1,t_start+1] == 0:
@@ -105,7 +114,7 @@ class GridEnv(gym.Env):
                     reward = P # Give negative reward
                     return state, action, self.grid, reward, done
                 self.grid[start,t_start:t_start+2] = 1
-                reward = R_halt * 1 * priority
+                reward = R_halt * 1 * self.train_state[train_id][2]
                 return state, action, self.grid, reward, done
             # If next section is not free find the timestep corresponding to when next section is available.
             else:
@@ -116,7 +125,7 @@ class GridEnv(gym.Env):
                 # Search for the first non-zero column index from the t_start index onwards
                 non_zero_indices = (row[t_start+1:] != 0).nonzero(as_tuple=True)[0]
                 self.grid[start, t_start:non_zero_indices+2] = 1   
-                reward =  R_halt * (non_zero_indices+1-t_start) * priority
+                reward =  R_halt * (non_zero_indices+1-t_start) * self.train_state[train_id][2]
                 return state, action, self.grid, reward, done
 
 
