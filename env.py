@@ -1,5 +1,4 @@
 
-
 # import gym
 import torch
 import numpy as np
@@ -21,13 +20,22 @@ class GridEnv():
         self.populate_trains(args)
         self.stations_list, self.station_info = self.build_station_info(args)
 
-       
-       
+
+    
     def create_network_grid(self,args):
         self.num_time_steps = args["max_time"] // args["time_step"] + 1
         self.num_nodes = len(self.create_station_section_array(args))
         state_tensor = torch.zeros(self.num_nodes,self.num_time_steps)
         return state_tensor
+
+    def get_station_tracks(self, station_name, station_info):
+        """
+        Given a station name and the dictionary station_info (which includes start_track and capacity),
+        return the list of track IDs that this station occupies.
+        """
+        start = station_info[station_name]["start_track"]
+        cap = station_info[station_name]["capacity"]
+        return list(range(start, start + cap))
 
     def build_station_info(self, args):
         """
@@ -46,7 +54,7 @@ class GridEnv():
             for station_name, station_data in station_dict.items():
                 stations_list.append(station_name)
                 capacities.append(station_data["capacity"])
-        
+
         # 2. Compute start_track for each station
         #    Station i has track IDs from start_track[i] to start_track[i] + capacity[i] - 1
         #    The connecting track to the next station is then start_track[i] + capacity[i]
@@ -60,7 +68,7 @@ class GridEnv():
             }
             # Move current_track forward by capacity + 1 (the +1 is for the section track to the next station)
             current_track += cap + 1
-        
+
         return stations_list, station_name_to_info
 
     def pass_station(self, current_station, direction, stations_list, station_info):
@@ -70,37 +78,36 @@ class GridEnv():
         - direction: "down" (S1 -> S2 -> S3 -> ...) or "up" (S2 -> S1 -> S0 -> ...)
         - stations_list: ordered list of stations e.g. ["S1", "S2", ..., "S10"]
         - station_info: mapping station_name -> {start_track, capacity}
-        
+
         If direction == "down" and current_station == "S1", we want S2's track IDs, etc.
         If direction == "up" and current_station == "S2", we want S1's track IDs, etc.
-        
+
         Returns a list of the neighbor station's track IDs.
         """
         # Find index of current_station in the ordered stations_list
         idx = stations_list.index(current_station)
-        
-        if direction.lower() == "down":
+
+        if direction == 1:
             # If going "down", the neighbor is station idx+1 (if it exists)
             if idx < len(stations_list) - 1:
                 neighbor_station = stations_list[idx + 1]
-                return get_station_tracks(neighbor_station, station_info)
+                return self.get_station_tracks(neighbor_station, station_info)
             else:
                 # No station further down; return empty or handle boundary
                 return []
-        
-        elif direction.lower() == "up":
+
+        else :
             # If going "up", the neighbor is station idx-1 (if it exists)
             if idx > 0:
                 neighbor_station = stations_list[idx - 1]
-                return get_station_tracks(neighbor_station, station_info)
+                return self.get_station_tracks(neighbor_station, station_info)
             else:
                 # No station further up; return empty or handle boundary
                 return []
-        
-        else:
-            raise ValueError("Direction must be 'down' or 'up'")
 
-    def find_station_by_track_id(track_id, stations_list, station_info):
+        
+
+    def find_station_by_track_id(self,track_id, stations_list, station_info):
         """
         Given a track_id (an integer), return the station name in which
         this track ID belongs. If it doesn't belong to any station, return None.
@@ -108,7 +115,7 @@ class GridEnv():
         for station_name in stations_list:
             start = station_info[station_name]["start_track"]
             cap = station_info[station_name]["capacity"]
-            
+
             # Tracks for this station go from 'start' up to 'start + cap - 1'
             if start <= track_id < (start + cap):
                 return station_name
@@ -125,12 +132,12 @@ class GridEnv():
         for station in args["stations"]:
             capacity = list(station.values())[0]["capacity"]
             station_tracks = list(range(current_index, current_index + capacity))
-            
+
             for track in station_tracks:
                 self.parallel_tracks[track] = [t for t in station_tracks if t != track]
-            
+
             current_index += capacity + 1  # +1 to account for the section
-            
+
         train_id = 0
         for nm, ss, st, ds, pr in train_init_states:
             row = self.find_indices(self.GRID_ROW_INFO,ss)[0]
@@ -143,20 +150,20 @@ class GridEnv():
                  direction = -1
             self.train_state[train_id] = [row, col, destination, pr, direction]
             train_id += 1
-       
+
         self.grid = state_tensor
-        
+
         return state_tensor
 
     def step(self, action, train_id):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
-        tau_pre = 2 # Block the destination track from t_end-tau_pre to t_end-1.  
-        tau_min = 3 # Minimum Dwelling Time    
+        tau_pre = 2 # Block the destination track from t_end-tau_pre to t_end-1.
+        tau_min = 3 # Minimum Dwelling Time
         section_length = 1000
         speed = 100
-        # temp = self.grid                                                                                                                                                                                                                                                                                  
+        # temp = self.grid
         state = copy.deepcopy(self.grid)
         P = -100
         alpha = 1
@@ -166,62 +173,66 @@ class GridEnv():
         R_halt = -0.01
         R_move = 0
         done = False
-
-        start = self.train_state[train_id][0] # Starting track
-        direction = self.train_state[train_id][3] 
+        # row, col, destination, pr, direction
+        start = self.train_state[train_id][0] # Starting track 
+        direction = self.train_state[train_id][4]
         station_no = self.find_station_by_track_id(start, self.stations_list, self.station_info)
+        
         if self.pass_station(station_no, direction, self.stations_list, self.station_info):
+            
             end = random.choice(self.pass_station(station_no, direction, self.stations_list, self.station_info))
         if direction == 1:
             connecting_edge = min(self.pass_station(station_no, direction, self.stations_list, self.station_info)) - 1
         else:
             connecting_edge = max(self.pass_station(station_no, direction, self.stations_list, self.station_info)) + 1
         t_start = self.train_state[train_id][1]
-        
+
         if action == 'move':
             time_section = section_length//speed
             t_end = t_start + time_section
-           
+
             if (self.grid[connecting_edge, t_start:t_end+1] != 0).any()== True:
                 reward = P # Give negative reward
                 return state, action, self.grid, reward, done
 
-           
-            self.grid[start, t_start] = 1 # Starting track
+
+            # self.grid[start, t_start] = 1 # Starting track
             self.grid[connecting_edge, t_start:t_end+1] = 1 # Populate section
-           
+
             self.grid[connecting_edge, t_start-tau_d:t_start] = 255 # Block section from t_start-tau_d to t_start-1
             self.grid[connecting_edge, t_end+1:t_end+tau_d+1] = 255 # Block section from t_end+1 to t_end+tau_d
 
-            
-          
+
+
             for track in self.parallel_tracks[end]:
                 self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = 255 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
 
-            self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.      
+            self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.
             self.grid[end,t_end+1] = 255
             self.grid[end, t_end] = 1 # Ending track
             self.train_state[train_id][0] = end
-            reward = R_move * self.train_state[train_id][2]
+            self.train_state[train_id][1] = t_end
+            reward = R_move * self.train_state[train_id][3]
 
             if all(value[0] == value[2] for value in self.train_state.values()): ### If all trains reach their respective destinations do this.
                 reward = alpha*(beta-DP)
                 return state, action, self.grid, reward, done
 
             if self.train_state[train_id][0] == self.train_state[train_id][2] :
-                reward = R_done * self.train_state[train_id][2]
+                reward = R_done * self.train_state[train_id][3]
                 return state, action, self.grid, reward, done
 
             return state, action, self.grid, reward, done
         else:
-         
+
              # First time dwelling
-            if self.grid[start,t_start-1] != 1: # If previous time_step is not occupied by train(that is 1), do this
+            if self.grid[start,t_start-1] > 1: #  REVIEW THIS !!!!!!!!!!!  If previous time_step is not occupied by train(that is 1), do this
                 if (self.grid[start, t_start:t_start+tau_min+1] != 0).any()== True:
                     reward = P # Give negative reward
                     return state, action, self.grid, reward, done
                 self.grid[start, t_start:t_start+tau_min+1] = 1
-                reward = R_halt * tau_min * self.train_state[train_id][2]
+                reward = R_halt * tau_min * self.train_state[train_id][3]
+                self.train_state[train_id][1] = t_start+tau_min
                 return state, action, self.grid, reward, done
             # If next section is free and it is not the first time halting do one step
             elif start+1 < self.num_nodes and t_start+1 < self.num_time_steps and self.grid[start+1,t_start+1] == 0:
@@ -229,24 +240,28 @@ class GridEnv():
                     reward = P # Give negative reward
                     return state, action, self.grid, reward, done
                 self.grid[start,t_start:t_start+2] = 1
-                reward = R_halt * 1 * self.train_state[train_id][2]
+                reward = R_halt * 1 * self.train_state[train_id][3]
+                self.train_state[train_id][1] = t_start+1
                 return state, action, self.grid, reward, done
             # If next section is not free find the timestep corresponding to when next section is available.
             else:
+                # REVIEW THIS.......................................
                 if (self.grid[start, t_start:non_zero_indices+2] != 0).any()== True:
                     reward = P # Give negative reward
                     return state, action, self.grid, reward, done
                 row = self.grid[start+1] # Have to handle the out of bound case for start+1
                 # Search for the first non-zero column index from the t_start index onwards
                 non_zero_indices = (row[t_start+1:] != 0).nonzero(as_tuple=True)[0]
-                self.grid[start, t_start:non_zero_indices+2] = 1   
-                reward =  R_halt * (non_zero_indices+1-t_start) * self.train_state[train_id][2]
+                self.grid[start, t_start:non_zero_indices+2] = 1 # Fill the station row
+                reward =  R_halt * (non_zero_indices+1-t_start) * self.train_state[train_id][3]
+                self.train_state[train_id][0] = start
+                self.train_state[train_id][1] = non_zero_indices+1
                 return state, action, self.grid, reward, done
 
 
- 
+
     def reset(self):
-       
+
         return self.grid
 
     def render(self,):
@@ -258,7 +273,7 @@ class GridEnv():
         sections = args.get('sections', [])
         result = []
         num_sections = len(sections)
-       
+
         for i, station_dict in enumerate(stations):
             station_name = next(iter(station_dict))
             capacity = station_dict[station_name].get('capacity', 1)
@@ -266,19 +281,19 @@ class GridEnv():
             if i < num_sections:
                 section_name = next(iter(sections[i]))
                 result.append(section_name)
-       
+
         self.GRID_ROW_INFO = result
         return result
-   
+
     def create_string_to_indices_map(self,result_array):
-   
+
         mapping = defaultdict(list)
         for idx, item in enumerate(result_array):
             mapping[item].append(idx)
         return mapping
 
     def get_next_index(self,mapping, counters, ss):
-   
+
         if ss in mapping and counters[ss] < len(mapping[ss]):
             index = mapping[ss][counters[ss]]
             counters[ss] += 1
@@ -295,8 +310,8 @@ class GridEnv():
         for ss in ss_queries:
             index = self.get_next_index(mapping, counters, ss)
             indices.append(index)
-        
-       
+
+
         return indices
 
     def where_is_my_train(self,row,col):
@@ -305,23 +320,23 @@ class GridEnv():
 def create_graph(args, flag):
     if flag not in [1, -1]:
         raise ValueError("Flag must be either 1 (left-to-right) or -1 (right-to-left).")
-   
+
     G = nx.MultiDiGraph()
-   
+
     # Add section edges
     for section in args['sections']:
         for section_name, details in section.items():
             start = details['start']
             end = details['end']
             length = details['length']
-           
+
             if flag == 1:
                 source, target = start, end
             else:
                 source, target = end, start
-           
+
             G.add_edge(source, target, name=section_name, length=length)
-   
+
     # Add station capacity edges (self-loops)
     for station in args['stations']:
         for station_name, attrs in station.items():
@@ -329,7 +344,7 @@ def create_graph(args, flag):
             for i in range(1, capacity + 1):
                 edge_name = f"{station_name}_l{i}"
                 G.add_edge(station_name, station_name, name=edge_name)
-   
+
     return G
 
 def visualize_graph(G):
@@ -341,14 +356,14 @@ def visualize_graph(G):
     nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold')
     edge_labels = nx.get_edge_attributes(G, 'length')
     nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='red', font_size=3, label_pos=0.5)
-   
+
 
     plt.axis('off')
     plt.title("Graph Visualization", fontsize=16)
     plt.tight_layout()
     plt.show()
 
-def get_next_edges(G, current_pos):  
+def get_next_edges(G, current_pos):
     if G.has_node(current_pos):
         outgoing_edges = G.out_edges(current_pos, keys=True, data=True)
 
@@ -365,7 +380,7 @@ def get_next_edges(G, current_pos):
                 edge_found = True
                 target_node = v
                 break
-       
+
         if edge_found:
             outgoing_edges = G.out_edges(target_node, keys=True, data=True)
 
@@ -377,8 +392,8 @@ def get_next_edges(G, current_pos):
 
 
 if __name__ == "__main__":
- 
-   
+
+
     args = {
         "stations": [
             {"S1": {"capacity": 3}},
@@ -418,7 +433,7 @@ if __name__ == "__main__":
     "max_time":1000,
     "time_step": 10
 
-        
+
         }
 
     G_lr = create_graph(args, 1)
@@ -431,7 +446,7 @@ if __name__ == "__main__":
     env.render()
 
 
-    a = env.step('move',2,3,5,0,0,9) #action, start, connecting_edge, end, t_start, train_id, destination
+    a = env.step('move',0) #action, start, connecting_edge, end, t_start, train_id, destination
 
 
 # action, start, connecting_edge, end, t_start, train_id, destination
