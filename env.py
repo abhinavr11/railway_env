@@ -1,5 +1,6 @@
 
-import gym
+
+# import gym
 import torch
 import numpy as np
 import random
@@ -7,16 +8,19 @@ import re
 import networkx as nx
 import matplotlib.pyplot as plt
 from collections import defaultdict
+import copy
 
 
-class GridEnv(gym.Env):
+class GridEnv():
     def __init__(self,args):
         super(GridEnv, self).__init__()
         self.args = args
         self.grid = self.create_network_grid(args)
-        self.populate_trains(args)
         self.train_state = {} # Dictionary of "train_id : (Curr_location, destination, priority)"
         self.parallel_tracks = {} # List of parallel tracks of a station
+        self.populate_trains(args)
+        self.stations_list, self.station_info = self.build_station_info(args)
+
        
        
     def create_network_grid(self,args):
@@ -24,6 +28,91 @@ class GridEnv(gym.Env):
         self.num_nodes = len(self.create_station_section_array(args))
         state_tensor = torch.zeros(self.num_nodes,self.num_time_steps)
         return state_tensor
+
+    def build_station_info(self, args):
+        """
+        Given the 'args' dictionary containing station-capacity mappings,
+        return two things:
+        1) A list of station names in order (e.g. ["S1", "S2", ...])
+        2) A dict mapping station name -> (start_track, capacity)
+            where start_track is the first track ID used by that station.
+        """
+        # 1. Extract station names (S1, S2, ...) and capacities in order
+        stations_list = []
+        capacities = []
+        for station_dict in args["stations"]:
+            # Each element of station_dict looks like {"S1": {"capacity": 3}}
+            # Extract station name (e.g. "S1") and station data {"capacity": 3}
+            for station_name, station_data in station_dict.items():
+                stations_list.append(station_name)
+                capacities.append(station_data["capacity"])
+        
+        # 2. Compute start_track for each station
+        #    Station i has track IDs from start_track[i] to start_track[i] + capacity[i] - 1
+        #    The connecting track to the next station is then start_track[i] + capacity[i]
+        station_name_to_info = {}
+        current_track = 0
+        for i, station_name in enumerate(stations_list):
+            cap = capacities[i]
+            station_name_to_info[station_name] = {
+                "start_track": current_track,
+                "capacity": cap
+            }
+            # Move current_track forward by capacity + 1 (the +1 is for the section track to the next station)
+            current_track += cap + 1
+        
+        return stations_list, station_name_to_info
+
+    def pass_station(self, current_station, direction, stations_list, station_info):
+        """
+        Given:
+        - current_station: e.g. "S1"
+        - direction: "down" (S1 -> S2 -> S3 -> ...) or "up" (S2 -> S1 -> S0 -> ...)
+        - stations_list: ordered list of stations e.g. ["S1", "S2", ..., "S10"]
+        - station_info: mapping station_name -> {start_track, capacity}
+        
+        If direction == "down" and current_station == "S1", we want S2's track IDs, etc.
+        If direction == "up" and current_station == "S2", we want S1's track IDs, etc.
+        
+        Returns a list of the neighbor station's track IDs.
+        """
+        # Find index of current_station in the ordered stations_list
+        idx = stations_list.index(current_station)
+        
+        if direction.lower() == "down":
+            # If going "down", the neighbor is station idx+1 (if it exists)
+            if idx < len(stations_list) - 1:
+                neighbor_station = stations_list[idx + 1]
+                return get_station_tracks(neighbor_station, station_info)
+            else:
+                # No station further down; return empty or handle boundary
+                return []
+        
+        elif direction.lower() == "up":
+            # If going "up", the neighbor is station idx-1 (if it exists)
+            if idx > 0:
+                neighbor_station = stations_list[idx - 1]
+                return get_station_tracks(neighbor_station, station_info)
+            else:
+                # No station further up; return empty or handle boundary
+                return []
+        
+        else:
+            raise ValueError("Direction must be 'down' or 'up'")
+
+    def find_station_by_track_id(track_id, stations_list, station_info):
+        """
+        Given a track_id (an integer), return the station name in which
+        this track ID belongs. If it doesn't belong to any station, return None.
+        """
+        for station_name in stations_list:
+            start = station_info[station_name]["start_track"]
+            cap = station_info[station_name]["capacity"]
+            
+            # Tracks for this station go from 'start' up to 'start + cap - 1'
+            if start <= track_id < (start + cap):
+                return station_name
+        return None
 
     def populate_trains(self,args):
         state_tensor = self.grid
@@ -48,23 +137,27 @@ class GridEnv(gym.Env):
             destination = self.find_indices(self.GRID_ROW_INFO,ds)[0]
             col = st//args['time_step']
             state_tensor[row,col] = 1
-            self.train_state[train_id] = (row, destination, pr)
+            if ds > ss:
+                 direction = 1 # Destination > Origin means train is going from left to right
+            else:
+                 direction = -1
+            self.train_state[train_id] = [row, col, destination, pr, direction]
             train_id += 1
        
         self.grid = state_tensor
         
         return state_tensor
 
-    def step(self, action, start, connecting_edge, end, t_start, train_id, destination):
+    def step(self, action, train_id):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
         tau_pre = 2 # Block the destination track from t_end-tau_pre to t_end-1.  
         tau_min = 3 # Minimum Dwelling Time    
         section_length = 1000
-        speed = 100                                                                                                                                                                                                                                                                                    
-        action = 'move'
-        state = self.grid
+        speed = 100
+        # temp = self.grid                                                                                                                                                                                                                                                                                  
+        state = copy.deepcopy(self.grid)
         P = -100
         alpha = 1
         beta = 4000
@@ -74,6 +167,17 @@ class GridEnv(gym.Env):
         R_move = 0
         done = False
 
+        start = self.train_state[train_id][0] # Starting track
+        direction = self.train_state[train_id][3] 
+        station_no = self.find_station_by_track_id(start, self.stations_list, self.station_info)
+        if self.pass_station(station_no, direction, self.stations_list, self.station_info):
+            end = random.choice(self.pass_station(station_no, direction, self.stations_list, self.station_info))
+        if direction == 1:
+            connecting_edge = min(self.pass_station(station_no, direction, self.stations_list, self.station_info)) - 1
+        else:
+            connecting_edge = max(self.pass_station(station_no, direction, self.stations_list, self.station_info)) + 1
+        t_start = self.train_state[train_id][1]
+        
         if action == 'move':
             time_section = section_length//speed
             t_end = t_start + time_section
@@ -89,8 +193,9 @@ class GridEnv(gym.Env):
             self.grid[connecting_edge, t_start-tau_d:t_start] = 255 # Block section from t_start-tau_d to t_start-1
             self.grid[connecting_edge, t_end+1:t_end+tau_d+1] = 255 # Block section from t_end+1 to t_end+tau_d
 
-           
-            for track in self.parallel_tracks:
+            
+          
+            for track in self.parallel_tracks[end]:
                 self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = 255 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
 
             self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.      
@@ -99,11 +204,11 @@ class GridEnv(gym.Env):
             self.train_state[train_id][0] = end
             reward = R_move * self.train_state[train_id][2]
 
-            if all(value[0] == value[1] for value in self.train_state.values()): ### If all trains reach their respective destinations do this.
+            if all(value[0] == value[2] for value in self.train_state.values()): ### If all trains reach their respective destinations do this.
                 reward = alpha*(beta-DP)
                 return state, action, self.grid, reward, done
 
-            if self.train_state[train_id][0] == self.train_state[train_id][1] :
+            if self.train_state[train_id][0] == self.train_state[train_id][2] :
                 reward = R_done * self.train_state[train_id][2]
                 return state, action, self.grid, reward, done
 
@@ -186,10 +291,11 @@ class GridEnv(gym.Env):
         mapping = self.create_string_to_indices_map(result_array)
         counters = defaultdict(int)
         indices = []
-       
+        print(ss_queries)
         for ss in ss_queries:
             index = self.get_next_index(mapping, counters, ss)
             indices.append(index)
+        
        
         return indices
 
@@ -311,6 +417,8 @@ if __name__ == "__main__":
     ],
     "max_time":1000,
     "time_step": 10
+
+        
         }
 
     G_lr = create_graph(args, 1)
@@ -322,6 +430,8 @@ if __name__ == "__main__":
     env.reset()
     env.render()
 
-# action, start, connecting_edge, end, t_start, train_id, destination, priority, current_location
 
-    env.step(1,3,4,6,0,1,9,1,3)
+    a = env.step('move',2,3,5,0,0,9) #action, start, connecting_edge, end, t_start, train_id, destination
+
+
+# action, start, connecting_edge, end, t_start, train_id, destination
