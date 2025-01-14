@@ -205,24 +205,41 @@ class GridEnv():
 
     
     def cropping_window(self, current_track, arrival_track, t_start, t_end):
-        # Calculate vertical half-size
-        vertical_half_size = (self.vertical_size - 1) // 2
-        # Calculate horizontal half-size
-        horizontal_half_size = (self.horizontal_size - 1) // 2
+            # Calculate vertical and horizontal half-sizes
+            vertical_half_size = (self.vertical_size - 1) // 2
+            horizontal_half_size = (self.horizontal_size - 1) // 2
         
-        # Extract window for the current_track centered vertically and horizontally around current_track and t_start
-        o_left = self.grid[
-            current_track - vertical_half_size : current_track + vertical_half_size + 1,
-            t_start - horizontal_half_size : t_start + horizontal_half_size + 1
-        ]
+            # Pad the grid with zeros on all sides to avoid out-of-bounds issues
+            padded_grid = np.pad(self.grid, 
+                                pad_width=((vertical_half_size, vertical_half_size), 
+                                            (horizontal_half_size, horizontal_half_size)), 
+                                mode='constant', constant_values=0)
+            
+            # Calculate the slice indices for o_left (current_track and t_start)
+            vertical_start_left = current_track
+            vertical_end_left = current_track + self.vertical_size
+            horizontal_start_left = t_start
+            horizontal_end_left = t_start + self.horizontal_size
         
-        # Extract window for the arrival_track centered vertically and horizontally around arrival_track and t_end
-        o_right = self.grid[
-            arrival_track - vertical_half_size : arrival_track + vertical_half_size + 1,
-            t_end - horizontal_half_size : t_end + horizontal_half_size + 1
-        ]
+            # Extract the left window from the padded grid
+            o_left = padded_grid[
+                vertical_start_left : vertical_end_left,
+                horizontal_start_left : horizontal_end_left
+            ]
+            
+            # Calculate the slice indices for o_right (arrival_track and t_end)
+            vertical_start_right = arrival_track
+            vertical_end_right = arrival_track + self.vertical_size
+            horizontal_start_right = t_end
+            horizontal_end_right = t_end + self.horizontal_size
         
-        return o_left, o_right
+            # Extract the right window from the padded grid
+            o_right = padded_grid[
+                vertical_start_right : vertical_end_right,
+                horizontal_start_right : horizontal_end_right
+            ]
+            
+            return o_left, o_right
 
     
     def step(self, action, arrival_track, train_id):
