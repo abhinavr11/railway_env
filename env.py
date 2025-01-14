@@ -174,7 +174,7 @@ class GridEnv():
         return t_end
          
 
-    def select_action(self, train_id, curr_track, t_start, epsilon):
+    def select_action(self, train_id, curr_track, station_no, direction, t_start, epsilon):
         arrival_track = -1
         if np.random.random() < epsilon:
             arrival_track = random.choice(self.pass_station(station_no, direction, self.stations_list, self.station_info) + [curr_track])
@@ -186,7 +186,7 @@ class GridEnv():
             all_act_space = self.pass_station(station_no, direction, self.stations_list, self.station_info) + [curr_track] 
             max_Q_value = -10000000
             for track in range(len(all_act_space)-1):
-                t_end = self.calculate_end('move', start, t_start)
+                t_end = self.calculate_end('move', curr_track, t_start)
                 obs_space = self.cropping_window(curr_track, track, t_start, t_end)
               
                 if self.Q_net(obs_space) > max_Q_value:
@@ -194,7 +194,7 @@ class GridEnv():
                     action = 'move'
                     arrival_track = track
 
-            t_end = self.calculate_end('halt', start, t_start)
+            t_end = self.calculate_end('halt', curr_track, t_start)
             obs_space = self.cropping_window(curr_track, curr_track, t_start, t_end)
             if self.Q_net(obs_space) > max_Q_value:
                     max_Q_value = self.Q_net(obs_space)[1] # [0] indicates 'halt'
@@ -262,7 +262,7 @@ class GridEnv():
         return [o_left, o_right]
 
     
-    def step(self, ostep, action, arrival_track, train_id):
+    def step(self, ostep, action, arrival_track, train_id, epsilon):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
@@ -321,12 +321,13 @@ class GridEnv():
             self.train_state[train_id][0] = arrival_track
             self.train_state[train_id][1] = t_end
             reward = R_move * self.train_state[train_id][3]
-            _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
+            station_no_step_1= self.find_station_by_track_id(arrival_track, self.stations_list, self.station_info)
+            _, _, ostep_1 = self.select_action(train_id, arrival_track, station_no_step_1, direction, t_end, epsilon) # curr_track, station_no, direction, t_start
 
             if all(value[0] == value[2] for value in self.train_state.values()): ### If all trains reach their respective destinations do this.
                 reward = alpha*(beta-DP)
             
-                station_no = self.find_station_by_track_id(start, self.stations_list, self.station_info)
+                
                 return ostep, action, ostep_1, reward, done
 
             if self.train_state[train_id][0] == self.train_state[train_id][2] :
@@ -344,8 +345,8 @@ class GridEnv():
                 self.grid[start, t_start:t_start+tau_min+1] = 1
                 reward = R_halt * tau_min * self.train_state[train_id][3]
                 self.train_state[train_id][1] = t_start+tau_min
-
-                _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)             
+                station_no_step_1= self.find_station_by_track_id(arrival_track, self.stations_list, self.station_info)
+                _, _, ostep_1 = self.select_action(train_id, arrival_track, station_no_step_1, direction, t_end, epsilon)           
                 return  ostep, action, ostep_1, reward, done
             # If next section is free and it is not the first time halting do one step
             elif start+1 < self.num_nodes and t_start+1 < self.num_time_steps and self.grid[start+1,t_start+1] == 0:
@@ -355,15 +356,17 @@ class GridEnv():
                 self.grid[start,t_start:t_start+2] = 1
                 reward = R_halt * 1 * self.train_state[train_id][3]
                 self.train_state[train_id][1] = t_start+1
-                
-                _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
+                station_no_step_1= self.find_station_by_track_id(arrival_track, self.stations_list, self.station_info)
+                _, _, ostep_1 = self.select_action(train_id, arrival_track, station_no_step_1, direction, t_end, epsilon)
                 return  ostep, action, ostep_1, reward, done
             # If next section is not free find the timestep corresponding to when next section is available.
             else:
                 # REVIEW THIS.......................................
                 if (self.grid[start, t_start:non_zero_indices+2] != 0).any()== True:
                     reward = P # Give negative reward
-                    _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
+                    station_no_step_1= self.find_station_by_track_id(arrival_track, self.stations_list, self.station_info)
+                    _, _, ostep_1 = self.select_action(train_id, arrival_track, station_no_step_1, direction, t_end, epsilon)
+                    
                     return  ostep, action, ostep_1, reward, done
                 row = self.grid[start+1] # Have to handle the out of bound case for start+1
                 # Search for the first non-zero column index from the t_start index onwards
@@ -372,7 +375,8 @@ class GridEnv():
                 reward =  R_halt * (non_zero_indices+1-t_start) * self.train_state[train_id][3]
                 self.train_state[train_id][0] = start
                 self.train_state[train_id][1] = non_zero_indices+1
-                _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
+                station_no_step_1= self.find_station_by_track_id(arrival_track, self.stations_list, self.station_info)
+                _, _, ostep_1 = self.select_action(train_id, arrival_track, station_no_step_1, direction, t_end, epsilon)
                 return  ostep, action, ostep_1, reward, done
 
 
