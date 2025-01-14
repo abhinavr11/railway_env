@@ -174,7 +174,7 @@ class GridEnv():
         return t_end
          
 
-    def select_action(self, train_id, curr_track, t_start, station_no, direction, epsilon):
+    def select_action(self, train_id, curr_track, t_start, epsilon):
         arrival_track = -1
         if np.random.random() < epsilon:
             arrival_track = random.choice(self.pass_station(station_no, direction, self.stations_list, self.station_info) + [curr_track])
@@ -183,10 +183,10 @@ class GridEnv():
             else:
                 action = 'move'
         else:
-            all_act_space = self.pass_station(station_no, direction, self.stations_list, self.station_info) + [curr_track]
+            all_act_space = self.pass_station(station_no, direction, self.stations_list, self.station_info) + [curr_track] 
             max_Q_value = -10000000
             for track in range(len(all_act_space)-1):
-                t_end = self.calculate_end('move', curr_track, t_start)
+                t_end = self.calculate_end('move', start, t_start)
                 obs_space = self.cropping_window(curr_track, track, t_start, t_end)
               
                 if self.Q_net(obs_space) > max_Q_value:
@@ -194,55 +194,75 @@ class GridEnv():
                     action = 'move'
                     arrival_track = track
 
-            t_end = self.calculate_end('halt', curr_track, t_start)
+            t_end = self.calculate_end('halt', start, t_start)
             obs_space = self.cropping_window(curr_track, curr_track, t_start, t_end)
             if self.Q_net(obs_space) > max_Q_value:
                     max_Q_value = self.Q_net(obs_space)[1] # [0] indicates 'halt'
                     action = 'halt'
                     arrival_track = curr_track
 
-        return action, arrival_track
+        return action, arrival_track, obs_space
 
     
+    # def cropping_window(self, current_track, arrival_track, t_start, t_end):
+    #     # Calculate vertical half-size
+    #     vertical_half_size = (self.vertical_size - 1) // 2
+    #     # Calculate horizontal half-size
+    #     horizontal_half_size = (self.horizontal_size - 1) // 2
+        
+    #     # Extract window for the current_track centered vertically and horizontally around current_track and t_start
+    #     o_left = self.grid[
+    #         current_track - vertical_half_size : current_track + vertical_half_size + 1,
+    #         t_start - horizontal_half_size : t_start + horizontal_half_size + 1
+    #     ]
+        
+    #     # Extract window for the arrival_track centered vertically and horizontally around arrival_track and t_end
+    #     o_right = self.grid[
+    #         arrival_track - vertical_half_size : arrival_track + vertical_half_size + 1,
+    #         t_end - horizontal_half_size : t_end + horizontal_half_size + 1
+    #     ]
+        
+    #     return o_left, o_right
+
     def cropping_window(self, current_track, arrival_track, t_start, t_end):
-            # Calculate vertical and horizontal half-sizes
-            vertical_half_size = (self.vertical_size - 1) // 2
-            horizontal_half_size = (self.horizontal_size - 1) // 2
+        # Calculate vertical and horizontal half-sizes
+        vertical_half_size = (self.vertical_size - 1) // 2
+        horizontal_half_size = (self.horizontal_size - 1) // 2
+    
+        # Pad the grid with zeros on all sides to avoid out-of-bounds issues
+        padded_grid = np.pad(self.grid, 
+                             pad_width=((vertical_half_size, vertical_half_size), 
+                                        (horizontal_half_size, horizontal_half_size)), 
+                             mode='constant', constant_values=0)
         
-            # Pad the grid with zeros on all sides to avoid out-of-bounds issues
-            padded_grid = np.pad(self.grid, 
-                                pad_width=((vertical_half_size, vertical_half_size), 
-                                            (horizontal_half_size, horizontal_half_size)), 
-                                mode='constant', constant_values=0)
-            
-            # Calculate the slice indices for o_left (current_track and t_start)
-            vertical_start_left = current_track
-            vertical_end_left = current_track + self.vertical_size
-            horizontal_start_left = t_start
-            horizontal_end_left = t_start + self.horizontal_size
+        # Calculate the slice indices for o_left (current_track and t_start)
+        vertical_start_left = current_track
+        vertical_end_left = current_track + self.vertical_size
+        horizontal_start_left = t_start
+        horizontal_end_left = t_start + self.horizontal_size
+    
+        # Extract the left window from the padded grid
+        o_left = padded_grid[
+            vertical_start_left : vertical_end_left,
+            horizontal_start_left : horizontal_end_left
+        ]
         
-            # Extract the left window from the padded grid
-            o_left = padded_grid[
-                vertical_start_left : vertical_end_left,
-                horizontal_start_left : horizontal_end_left
-            ]
-            
-            # Calculate the slice indices for o_right (arrival_track and t_end)
-            vertical_start_right = arrival_track
-            vertical_end_right = arrival_track + self.vertical_size
-            horizontal_start_right = t_end
-            horizontal_end_right = t_end + self.horizontal_size
+        # Calculate the slice indices for o_right (arrival_track and t_end)
+        vertical_start_right = arrival_track
+        vertical_end_right = arrival_track + self.vertical_size
+        horizontal_start_right = t_end
+        horizontal_end_right = t_end + self.horizontal_size
+    
+        # Extract the right window from the padded grid
+        o_right = padded_grid[
+            vertical_start_right : vertical_end_right,
+            horizontal_start_right : horizontal_end_right
+        ]
         
-            # Extract the right window from the padded grid
-            o_right = padded_grid[
-                vertical_start_right : vertical_end_right,
-                horizontal_start_right : horizontal_end_right
-            ]
-            
-            return o_left, o_right
+        return [o_left, o_right]
 
     
-    def step(self, action, arrival_track, train_id):
+    def step(self, ostep, action, arrival_track, train_id):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
@@ -301,16 +321,19 @@ class GridEnv():
             self.train_state[train_id][0] = arrival_track
             self.train_state[train_id][1] = t_end
             reward = R_move * self.train_state[train_id][3]
+            _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
 
             if all(value[0] == value[2] for value in self.train_state.values()): ### If all trains reach their respective destinations do this.
                 reward = alpha*(beta-DP)
-                return state, action, self.grid, reward, done
+            
+                station_no = self.find_station_by_track_id(start, self.stations_list, self.station_info)
+                return ostep, action, ostep_1, reward, done
 
             if self.train_state[train_id][0] == self.train_state[train_id][2] :
                 reward = R_done * self.train_state[train_id][3]
-                return state, action, self.grid, reward, done
-
-            return state, action, self.grid, reward, done
+                return ostep, action, ostep_1, reward, done
+                
+            return  ostep, action, ostep_1, reward, done
         else:
 
              # First time dwelling
@@ -321,7 +344,9 @@ class GridEnv():
                 self.grid[start, t_start:t_start+tau_min+1] = 1
                 reward = R_halt * tau_min * self.train_state[train_id][3]
                 self.train_state[train_id][1] = t_start+tau_min
-                return state, action, self.grid, reward, done
+
+                _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)             
+                return  ostep, action, ostep_1, reward, done
             # If next section is free and it is not the first time halting do one step
             elif start+1 < self.num_nodes and t_start+1 < self.num_time_steps and self.grid[start+1,t_start+1] == 0:
                 if (self.grid[start,t_start:t_start+2] != 0).any()== 0:
@@ -330,13 +355,16 @@ class GridEnv():
                 self.grid[start,t_start:t_start+2] = 1
                 reward = R_halt * 1 * self.train_state[train_id][3]
                 self.train_state[train_id][1] = t_start+1
-                return state, action, self.grid, reward, done
+                
+                _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
+                return  ostep, action, ostep_1, reward, done
             # If next section is not free find the timestep corresponding to when next section is available.
             else:
                 # REVIEW THIS.......................................
                 if (self.grid[start, t_start:non_zero_indices+2] != 0).any()== True:
                     reward = P # Give negative reward
-                    return state, action, self.grid, reward, done
+                    _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
+                    return  ostep, action, ostep_1, reward, done
                 row = self.grid[start+1] # Have to handle the out of bound case for start+1
                 # Search for the first non-zero column index from the t_start index onwards
                 non_zero_indices = (row[t_start+1:] != 0).nonzero(as_tuple=True)[0]
@@ -344,8 +372,8 @@ class GridEnv():
                 reward =  R_halt * (non_zero_indices+1-t_start) * self.train_state[train_id][3]
                 self.train_state[train_id][0] = start
                 self.train_state[train_id][1] = non_zero_indices+1
-                return state, action, self.grid, reward, done
-
+                _, _, ostep_1 = self.select_action(train_id, arrival_track, t_emd, epsilon)
+                return  ostep, action, ostep_1, reward, done
 
 
     def reset(self):
@@ -535,3 +563,6 @@ if __name__ == "__main__":
 
 
     a = env.step('move',0) #action, start, connecting_edge, end, t_start, train_id, destination
+
+
+# action, start, connecting_edge, end, t_start, train_id, destination
