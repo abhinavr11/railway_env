@@ -19,6 +19,8 @@ class GridEnv():
         self.parallel_tracks = {} # List of parallel tracks of a station
         self.populate_trains(args)
         self.stations_list, self.station_info = self.build_station_info(args)
+        self.horizontal_size = 13
+        self.vertical_size = 41
 
 
     
@@ -155,14 +157,81 @@ class GridEnv():
 
         return state_tensor
 
-    def step(self, action, train_id):
+    def calculate_end(self, action, start, t_start):
+        if action == 'move':
+            time_section = section_length//speed
+            t_end = t_start + time_section
+        else:
+            if self.grid[start,t_start-1] > 1:
+                t_end = t_start+tau_min
+            elif start+1 < self.num_nodes and t_start+1 < self.num_time_steps and self.grid[start+1,t_start+1] == 0:
+                t_end = t_start + 1
+            else:
+                row = self.grid[start+1] # Have to handle the out of bound case for start+1
+                # Search for the first non-zero column index from the t_start index onwards
+                non_zero_indices = (row[t_start+1:] != 0).nonzero(as_tuple=True)[0]
+                t_end = t_start+non_zero_indices+1
+        return t_end
+         
+
+    def select_action(self, train_id, curr_track, t_start, station_no, direction, epsilon):
+        arrival_track = -1
+        if np.random.random() < epsilon:
+            arrival_track = random.choice(self.pass_station(station_no, direction, self.stations_list, self.station_info) + [curr_track])
+            if arrival_track == curr_track:
+                action = 'halt'
+            else:
+                action = 'move'
+        else:
+            all_act_space = self.pass_station(station_no, direction, self.stations_list, self.station_info) + [curr_track]
+            max_Q_value = -10000000
+            for track in range(len(all_act_space)-1):
+                t_end = self.calculate_end('move', curr_track, t_start)
+                obs_space = self.cropping_window(curr_track, track, t_start, t_end)
+              
+                if self.Q_net(obs_space) > max_Q_value:
+                    max_Q_value = self.Q_net(obs_space)[0] # [0] indicates 'move'
+                    action = 'move'
+                    arrival_track = track
+
+            t_end = self.calculate_end('halt', curr_track, t_start)
+            obs_space = self.cropping_window(curr_track, curr_track, t_start, t_end)
+            if self.Q_net(obs_space) > max_Q_value:
+                    max_Q_value = self.Q_net(obs_space)[1] # [0] indicates 'halt'
+                    action = 'halt'
+                    arrival_track = curr_track
+
+        return action, arrival_track
+
+    
+    def cropping_window(self, current_track, arrival_track, t_start, t_end):
+        # Calculate vertical half-size
+        vertical_half_size = (self.vertical_size - 1) // 2
+        # Calculate horizontal half-size
+        horizontal_half_size = (self.horizontal_size - 1) // 2
+        
+        # Extract window for the current_track centered vertically and horizontally around current_track and t_start
+        o_left = self.grid[
+            current_track - vertical_half_size : current_track + vertical_half_size + 1,
+            t_start - horizontal_half_size : t_start + horizontal_half_size + 1
+        ]
+        
+        # Extract window for the arrival_track centered vertically and horizontally around arrival_track and t_end
+        o_right = self.grid[
+            arrival_track - vertical_half_size : arrival_track + vertical_half_size + 1,
+            t_end - horizontal_half_size : t_end + horizontal_half_size + 1
+        ]
+        
+        return o_left, o_right
+
+    
+    def step(self, action, arrival_track, train_id):
         # Implement Logic of Transition
         tau_d = 2 # Block section from t_end+1 to t_end+tau_d and t_start-tau_d to t_start-1
         tau_arr = 1 # Block all other tracks of the destination station from t_end-tau_arr to t_end+tau_arr
         tau_pre = 2 # Block the destination track from t_end-tau_pre to t_end-1.
         tau_min = 3 # Minimum Dwelling Time
-        section_length = 1000
-        speed = 100
+        
         # temp = self.grid
         state = copy.deepcopy(self.grid)
         P = -100
@@ -173,14 +242,16 @@ class GridEnv():
         R_halt = -0.01
         R_move = 0
         done = False
+        section_length = 1000
+        speed = 100
         # row, col, destination, pr, direction
         start = self.train_state[train_id][0] # Starting track 
         direction = self.train_state[train_id][4]
         station_no = self.find_station_by_track_id(start, self.stations_list, self.station_info)
         
-        if self.pass_station(station_no, direction, self.stations_list, self.station_info):
+        # if self.pass_station(station_no, direction, self.stations_list, self.station_info):
             
-            end = random.choice(self.pass_station(station_no, direction, self.stations_list, self.station_info))
+        #     end = random.choice(self.pass_station(station_no, direction, self.stations_list, self.station_info))
         if direction == 1:
             connecting_edge = min(self.pass_station(station_no, direction, self.stations_list, self.station_info)) - 1
         else:
@@ -204,13 +275,13 @@ class GridEnv():
 
 
 
-            for track in self.parallel_tracks[end]:
+            for track in self.parallel_tracks[arrival_track]:
                 self.grid[track, t_end-tau_arr:t_end+tau_arr+1] = 255 # Block all tracks of the destination station from t_end-tau_arr to t_end+tau_arr
 
-            self.grid[end, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.
-            self.grid[end,t_end+1] = 255
-            self.grid[end, t_end] = 1 # Ending track
-            self.train_state[train_id][0] = end
+            self.grid[arrival_track, t_end-tau_pre:t_end] = 200 # Block the destination track from t_end-tau_pre to t_end-1.
+            self.grid[arrival_track,t_end+1] = 255
+            self.grid[arrival_track, t_end] = 1 # Ending track
+            self.train_state[train_id][0] = arrival_track
             self.train_state[train_id][1] = t_end
             reward = R_move * self.train_state[train_id][3]
 
@@ -447,6 +518,3 @@ if __name__ == "__main__":
 
 
     a = env.step('move',0) #action, start, connecting_edge, end, t_start, train_id, destination
-
-
-# action, start, connecting_edge, end, t_start, train_id, destination
