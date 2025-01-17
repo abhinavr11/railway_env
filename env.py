@@ -254,13 +254,13 @@ class GridEnv():
             pad_width_left = horizontal_half_size-t_start
                              
         if t_start + horizontal_half_size >= self.grid.shape[1]:
-            pad_width_right =  t_start + horizontal_half_size - self.grid.shape[1]
+            pad_width_right =  t_start + horizontal_half_size - self.grid.shape[1] + 1
         
         if current_track < vertical_half_size:
             pad_width_up = vertical_half_size-current_track
                              
         if current_track + vertical_half_size >= self.grid.shape[0]:
-            pad_width_down = current_track + vertical_half_size - self.grid.shape[0]
+            pad_width_down = current_track + vertical_half_size - self.grid.shape[0] + 1
         
         # Pad the grid with zeros on all sides to avoid out-of-bounds issues
         print("self.grid", self.grid)
@@ -300,13 +300,13 @@ class GridEnv():
             pad_width_left_r = horizontal_half_size-t_end
                              
         if t_end + horizontal_half_size >= self.grid.shape[1]:
-            pad_width_right_r =  t_end + horizontal_half_size - self.grid.shape[1]
+            pad_width_right_r =  t_end + horizontal_half_size - self.grid.shape[1] + 1
         
         if arrival_track < vertical_half_size:
             pad_width_up_r = vertical_half_size-arrival_track
                              
         if arrival_track + vertical_half_size >= self.grid.shape[0]:
-            pad_width_down_r = arrival_track + vertical_half_size - self.grid.shape[0]
+            pad_width_down_r = arrival_track + vertical_half_size - self.grid.shape[0] + 1
         
         print("for right")
         print("pad_width_left_r, pad_width_right_r, pad_width_up_r, pad_width_down_r", pad_width_left_r, pad_width_right_r, pad_width_up_r, pad_width_down_r)
